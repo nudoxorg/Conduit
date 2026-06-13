@@ -1,0 +1,2 @@
+defmodule Daemon do
+end
