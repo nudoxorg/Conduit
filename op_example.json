@@ -1,0 +1,55 @@
+{
+    "acd": 2,
+    "manifest": {
+        "personality": {
+            "starter_prompt": "You are a helpful assistant.",
+            "tools": [
+                "search",
+                "read"
+            ]
+        },
+        "slots": [
+            {
+                "name": "query",
+                "ty": {
+                    "type": "string"
+                }
+            }
+        ]
+    },
+    "body": {
+        "op": "label",
+        "label": "answer-the-question",
+        "body": {
+            "op": "then",
+            "first": {
+                "op": "slot_set",
+                "slot": "query",
+                "value": {
+                    "op": "interrupt",
+                    "id": 0,
+                    "kind": "ask_human",
+                    "prompt": "What's your question?",
+                    "response": {
+                        "type": "string"
+                    }
+                }
+            },
+            "second": {
+                "op": "call_tool",
+                "name": "search",
+                "args": [
+                    {
+                        "op": "slot_get",
+                        "slot": "query"
+                    }
+                ],
+                "output": {
+                    "type": "json"
+                }
+            },
+            "keep": "second"
+        }
+    }
+}
+

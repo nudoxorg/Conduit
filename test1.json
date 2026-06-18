@@ -1,0 +1,16 @@
+{
+  "program": {
+    "acd": 2,
+    "manifest": {
+      "personality": {
+        "starter_prompt": "You are a concise technical assistant.",
+        "tools": []
+      },
+      "slots": []
+    },
+    "body": {
+      "op": "literal",
+      "value": "Explain in 3 bullet points why Elixir is good for building concurrent systems."
+    }
+  }
+}
