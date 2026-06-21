@@ -1,0 +1,179 @@
+{
+    "program": {
+        "acd": 2,
+        "manifest": {
+            "personality": {
+                "starter_prompt": "You are a senior technical analyst. The preprocessing pipeline has already gathered and summarized raw source material for you. Your job is to produce a polished final report with three sections: Executive Summary, Detailed Findings, and Recommended Next Steps. Be specific and cite concrete details from the context you receive.",
+                "tools": ["read", "write", "http_get"]
+            },
+            "slots": [
+                { "name": "topic", "ty": { "type": "string" } },
+                { "name": "mode", "ty": { "type": "string" } },
+                { "name": "detail", "ty": { "type": "string" } },
+                { "name": "source_url", "ty": { "type": "string" } },
+                { "name": "raw", "ty": { "type": "string" } },
+                { "name": "supplement", "ty": { "type": "string" } }
+            ]
+        },
+        "body": {
+            "op": "label",
+            "label": "research-pipeline",
+            "body": {
+                "op": "then",
+                "first": {
+                    "op": "slot_set",
+                    "slot": "topic",
+                    "value": {
+                        "op": "interrupt",
+                        "id": 0,
+                        "kind": "ask_human",
+                        "prompt": "What topic should this report focus on?",
+                        "response": { "type": "string" }
+                    }
+                },
+                "second": {
+                    "op": "then",
+                    "first": {
+                        "op": "slot_set",
+                        "slot": "mode",
+                        "value": {
+                            "op": "interrupt",
+                            "id": 1,
+                            "kind": "ask_human",
+                            "prompt": "Source mode — type 'web' to fetch a URL, or 'local' to read README.md from this daemon project.",
+                            "response": { "type": "string" }
+                        }
+                    },
+                    "second": {
+                        "op": "then",
+                        "first": {
+                            "op": "slot_set",
+                            "slot": "detail",
+                            "value": {
+                                "op": "interrupt",
+                                "id": 2,
+                                "kind": "ask_human",
+                                "prompt": "Detail level 1–5 (1 = brief, 5 = exhaustive). Values above 3 trigger a supplemental fetch.",
+                                "response": { "type": "string" }
+                            }
+                        },
+                        "second": {
+                            "op": "then",
+                            "first": {
+                                "op": "load_context",
+                                "value": {
+                                    "op": "slot_get",
+                                    "slot": "topic"
+                                }
+                            },
+                            "second": {
+                                "op": "then",
+                                "first": {
+                                    "op": "when",
+                                    "condition": {
+                                        "op": "eq",
+                                        "left": { "op": "slot_get", "slot": "mode" },
+                                        "right": { "op": "literal", "value": "web" }
+                                    },
+                                    "body": {
+                                        "op": "then",
+                                        "first": {
+                                            "op": "slot_set",
+                                            "slot": "source_url",
+                                            "value": {
+                                                "op": "interrupt",
+                                                "id": 3,
+                                                "kind": "ask_human",
+                                                "prompt": "Enter the URL to fetch:",
+                                                "response": { "type": "string" }
+                                            }
+                                        },
+                                        "second": {
+                                            "op": "slot_set",
+                                            "slot": "raw",
+                                            "value": {
+                                                "op": "call_tool",
+                                                "name": "http_get",
+                                                "args": [{ "op": "slot_get", "slot": "source_url" }],
+                                                "output": { "type": "string" }
+                                            }
+                                        },
+                                        "keep": "second"
+                                    }
+                                },
+                                "second": {
+                                    "op": "then",
+                                    "first": {
+                                        "op": "when",
+                                        "condition": {
+                                            "op": "eq",
+                                            "left": { "op": "slot_get", "slot": "mode" },
+                                            "right": { "op": "literal", "value": "local" }
+                                        },
+                                        "body": {
+                                            "op": "slot_set",
+                                            "slot": "raw",
+                                            "value": {
+                                                "op": "call_tool",
+                                                "name": "read",
+                                                "args": [
+                                                    {
+                                                        "op": "literal",
+                                                        "value": "/Users/robertmccrary/Code/NuDox/daemon/README.md"
+                                                    }
+                                                ],
+                                                "output": { "type": "string" }
+                                            }
+                                        }
+                                    },
+                                    "second": {
+                                        "op": "then",
+                                        "first": {
+                                            "op": "when",
+                                            "condition": {
+                                                "op": "gt",
+                                                "left": { "op": "slot_get", "slot": "detail" },
+                                                "right": { "op": "literal", "value": "3" }
+                                            },
+                                            "body": {
+                                                "op": "slot_set",
+                                                "slot": "supplement",
+                                                "value": {
+                                                    "op": "call_tool",
+                                                    "name": "http_get",
+                                                    "args": [
+                                                        {
+                                                            "op": "literal",
+                                                            "value": "https://hexdocs.pm/elixir/Agent.html"
+                                                        }
+                                                    ],
+                                                    "output": { "type": "string" }
+                                                }
+                                            }
+                                        },
+                                        "second": {
+                                            "op": "spawn_agent",
+                                            "id": "summarizer",
+                                            "personality": {
+                                                "starter_prompt": "You are a preprocessing summarizer. You receive raw source text. Extract the most important facts, architecture details, and terminology. Output a dense bullet-point digest — no preamble, no filler. If the input is empty, say 'No source material was gathered.'",
+                                                "tools": []
+                                            },
+                                            "input": { "op": "slot_get", "slot": "raw" }
+                                        },
+                                        "keep": "second"
+                                    },
+                                    "keep": "second"
+                                },
+                                "keep": "second"
+                            },
+                            "keep": "second"
+                        },
+                        "keep": "second"
+                    },
+                    "keep": "second"
+                },
+                "keep": "second"
+            }
+        }
+    }
+}
