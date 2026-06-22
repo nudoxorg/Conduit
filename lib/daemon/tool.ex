@@ -38,6 +38,36 @@ defmodule Daemon.Tool do
     write_file(path, content)
   end
 
+  def execute("list", %{"path" => path}) do
+    Logger.info("tool=list path=#{path}")
+    list_dir(path)
+  end
+
+  def execute("list", [path | _]) when is_binary(path) do
+    Logger.info("tool=list path=#{path}")
+    list_dir(path)
+  end
+
+  def execute("grep", %{"pattern" => pattern, "path" => path}) do
+    Logger.info("tool=grep pattern=#{pattern} path=#{path}")
+    run_grep(pattern, path)
+  end
+
+  def execute("grep", [pattern, path | _]) when is_binary(pattern) and is_binary(path) do
+    Logger.info("tool=grep pattern=#{pattern} path=#{path}")
+    run_grep(pattern, path)
+  end
+
+  def execute("shell", %{"command" => command}) do
+    Logger.info("tool=shell command=#{command}")
+    run_shell(command)
+  end
+
+  def execute("shell", [command | _]) when is_binary(command) do
+    Logger.info("tool=shell command=#{command}")
+    run_shell(command)
+  end
+
   # fallback (stubbed)
   def execute(name, args) do
     Logger.info("tool=#{name} args=#{inspect(args)} (stubbed)")
@@ -198,6 +228,28 @@ defmodule Daemon.Tool do
       {:ok, "wrote #{path}"}
     else
       {:error, reason} -> {:error, "write #{path}: #{:file.format_error(reason)}"}
+    end
+  end
+
+  defp list_dir(path) do
+    case File.ls(path) do
+      {:ok, entries} -> {:ok, Enum.join(Enum.sort(entries), "\n")}
+      {:error, reason} -> {:error, "list #{path}: #{:file.format_error(reason)}"}
+    end
+  end
+
+  defp run_grep(pattern, path) do
+    case System.cmd("grep", ["-rn", pattern, path], stderr_to_stdout: true) do
+      {output, 0} -> {:ok, String.slice(output, 0, @response_truncate_chars)}
+      {_output, 1} -> {:ok, "no matches"}
+      {output, code} -> {:error, "grep exit #{code}: #{String.slice(output, 0, @response_truncate_chars)}"}
+    end
+  end
+
+  defp run_shell(command) do
+    case System.cmd("sh", ["-c", command], stderr_to_stdout: true) do
+      {output, 0} -> {:ok, String.slice(output, 0, @response_truncate_chars)}
+      {output, code} -> {:error, "exit #{code}: #{String.slice(output, 0, @response_truncate_chars)}"}
     end
   end
 

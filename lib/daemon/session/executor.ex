@@ -4,6 +4,8 @@ defmodule Daemon.Session.Executor do
 
   # state = %{session_id: "...", slots: %{}}
 
+  @max_while_iterations 1000
+
   # --- chain ops ---
 
   def exec(%Op.Label{body: body}, state) do
@@ -34,12 +36,24 @@ defmodule Daemon.Session.Executor do
     end
   end
 
-  def exec(%Op.While{condition: condition, body: body} = op, state) do
+  def exec(%Op.While{condition: condition, body: body}, state) do
+    exec_while(condition, body, state, 0)
+  end
+
+  defp exec_while(_condition, _body, state, @max_while_iterations) do
+    Logger.error(
+      "session=#{state.session_id} while loop exceeded #{@max_while_iterations} iterations"
+    )
+
+    raise "While loop exceeded maximum iterations (#{@max_while_iterations})"
+  end
+
+  defp exec_while(condition, body, state, count) do
     {cond_result, state} = exec(condition, state)
 
     if cond_result do
       {_result, state} = exec(body, state)
-      exec(op, state)
+      exec_while(condition, body, state, count + 1)
     else
       {nil, state}
     end
@@ -90,7 +104,9 @@ defmodule Daemon.Session.Executor do
 
     output =
       case Daemon.Tool.execute(name, args) do
-        {:ok, str} -> str
+        {:ok, str} ->
+          str
+
         {:error, reason} ->
           Logger.error("session=#{state.session_id} tool=#{name} error=#{inspect(reason)}")
           "Error: #{inspect(reason)}"

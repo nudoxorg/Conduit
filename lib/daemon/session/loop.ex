@@ -4,30 +4,28 @@ defmodule Daemon.Session.Loop do
 
   def run(session_id, program, history, _user_message) do
     plan = Daemon.Op.Interpreter.build(program)
+    personality = program.manifest.personality
 
     state = %{session_id: session_id, slots: plan.slots}
-    system = program.manifest.personality.starter_prompt
 
     Logger.info("session=#{session_id} executing op tree")
     {result, _final_state} = Executor.exec(program.body, state)
     Logger.info("session=#{session_id} op tree complete result=#{inspect(result)}")
 
-    # llm_plan = %{
-    #  provider: :openai,
-    #  model: "gpt-4o",
-    #  system: system,
-    #  tools: plan.tools
-    # }
+    if personality.use_llm do
+      llm_plan = %{
+        provider: :anthropic,
+        model: "claude-sonnet-4-6",
+        system: personality.starter_prompt,
+        tools: plan.tools
+      }
 
-    llm_plan = %{
-      provider: :anthropic,
-      model: "claude-sonnet-4-6",
-      system: system,
-      tools: plan.tools
-    }
-
-    messages = history ++ [%{role: :user, content: to_string(result)}]
-    agent_loop(session_id, llm_plan, messages, 0)
+      messages = history ++ [%{role: :user, content: to_string(result)}]
+      agent_loop(session_id, llm_plan, messages, 0)
+    else
+      broadcast(session_id, %{type: :finished, content: to_string(result)})
+      {:ok, history}
+    end
   end
 
   @max_iterations 20
