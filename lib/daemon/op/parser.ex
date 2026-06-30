@@ -38,7 +38,7 @@ defmodule Daemon.Op.Parser do
 
   defp parse_routines(raw) do
     Enum.map(raw, fn {name, op_raw} -> {name, parse_op(op_raw)} end)
-    |> Elixir.Map.new()
+    |> Map.new()
   end
 
   # ── values & state ────────────────────────────────────────────────

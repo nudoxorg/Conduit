@@ -33,12 +33,12 @@ defmodule Daemon.Session.Executor do
 
   def exec(%Op.SlotSet{slot: slot, value: value_op}, state) do
     {value, state} = exec(value_op, state)
-    state = %{state | slots: Elixir.Map.put(state.slots, slot, value)}
+    state = %{state | slots: Map.put(state.slots, slot, value)}
     {value, state}
   end
 
   def exec(%Op.ParamGet{param: param}, state) do
-    {Elixir.Map.get(state.params, param), state}
+    {Map.get(state.params, param), state}
   end
 
   # ── time & resilience ─────────────────────────────────────────────
@@ -129,7 +129,7 @@ defmodule Daemon.Session.Executor do
   def exec(%Op.Checkpoint{name: name}, state) do
     state = %{
       state
-      | checkpoints: Elixir.Map.put(state.checkpoints, name, length(state.context_messages))
+      | checkpoints: Map.put(state.checkpoints, name, length(state.context_messages))
     }
 
     {nil, state}
@@ -194,7 +194,7 @@ defmodule Daemon.Session.Executor do
 
     {results, state} =
       Enum.reduce(items, {[], state}, fn item, {acc, st} ->
-        st = %{st | params: Elixir.Map.put(st.params, param, item)}
+        st = %{st | params: Map.put(st.params, param, item)}
         {value, st} = exec(body, st)
         {acc ++ [value], st}
       end)
@@ -259,7 +259,7 @@ defmodule Daemon.Session.Executor do
   end
 
   def exec(%Op.ForgetAfter{mark: mark}, state) do
-    idx = Elixir.Map.get(state.checkpoints, mark, 0)
+    idx = Map.get(state.checkpoints, mark, 0)
     {nil, %{state | context_messages: Enum.take(state.context_messages, idx)}}
   end
 
@@ -314,8 +314,8 @@ defmodule Daemon.Session.Executor do
   # ── error recovery ────────────────────────────────────────────────
 
   def exec(%Op.Retry{policy: policy, body: body}, state) do
-    max = Elixir.Map.get(policy, "max_attempts", 3)
-    delay_ms = Elixir.Map.get(policy, "delay_ms", 0)
+    max = Map.get(policy, "max_attempts", 3)
+    delay_ms = Map.get(policy, "delay_ms", 0)
     exec_retry(body, state, max, delay_ms)
   end
 
@@ -401,7 +401,7 @@ defmodule Daemon.Session.Executor do
       items
       |> Task.async_stream(
         fn item ->
-          item_state = %{state | params: Elixir.Map.put(state.params, param, item)}
+          item_state = %{state | params: Map.put(state.params, param, item)}
           {value, _} = exec(body, item_state)
           value
         end,
@@ -422,7 +422,7 @@ defmodule Daemon.Session.Executor do
         {acc ++ [val], st}
       end)
 
-    case Elixir.Map.get(state.routines, name) do
+    case Map.get(state.routines, name) do
       nil ->
         raise "Invoke: routine #{inspect(name)} not found in manifest"
 
@@ -431,9 +431,9 @@ defmodule Daemon.Session.Executor do
           args
           |> Enum.with_index()
           |> Enum.map(fn {v, i} -> {"arg_#{i}", v} end)
-          |> Elixir.Map.new()
+          |> Map.new()
 
-        exec(routine_op, %{state | params: Elixir.Map.merge(state.params, arg_params)})
+        exec(routine_op, %{state | params: Map.merge(state.params, arg_params)})
     end
   end
 
@@ -474,7 +474,7 @@ defmodule Daemon.Session.Executor do
         :timer.minutes(30) -> raise "OnSignal: timeout waiting for topic #{inspect(topic)}"
       end
 
-    state = %{state | params: Elixir.Map.put(state.params, param, payload)}
+    state = %{state | params: Map.put(state.params, param, payload)}
     {_result, state} = exec(body, state)
     {nil, state}
   end
@@ -494,12 +494,18 @@ defmodule Daemon.Session.Executor do
         {acc ++ [value], st}
       end)
 
-    voter_state = %{state | params: Elixir.Map.put(state.params, "ensemble_results", results)}
+    voter_state = %{state | params: Map.put(state.params, "ensemble_results", results)}
     exec(voter, voter_state)
   end
 
   def exec(%Op.Sample{choices: choices}, state) do
-    total = Enum.sum(Enum.map(choices, fn {w, _} -> w end))
+    # total = Enum.sum(Enum.map(choices, fn {w, _} -> w end))
+
+    total =
+      choices
+      |> Enum.map(fn {w, _} -> w end)
+      |> Enum.sum()
+
     r = :rand.uniform() * total
 
     {_, chosen} =

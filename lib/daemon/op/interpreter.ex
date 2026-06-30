@@ -5,7 +5,7 @@ defmodule Daemon.Op.Interpreter do
     slots =
       manifest.slots
       |> Enum.map(&{&1.name, nil})
-      |> Elixir.Map.new()
+      |> Map.new()
 
     %__MODULE__{
       personality: manifest.personality,
