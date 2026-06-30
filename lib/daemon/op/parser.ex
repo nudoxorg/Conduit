@@ -29,6 +29,7 @@ defmodule Daemon.Op.Parser do
 
   defp parse_provider("anthropic"), do: :anthropic
   defp parse_provider("openai"), do: :openai
+  defp parse_provider("gemini"), do: :gemini
   defp parse_provider(_), do: nil
 
   defp parse_slot(raw) do
