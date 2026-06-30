@@ -240,16 +240,24 @@ defmodule Daemon.Tool do
 
   defp run_grep(pattern, path) do
     case System.cmd("grep", ["-rn", pattern, path], stderr_to_stdout: true) do
-      {output, 0} -> {:ok, String.slice(output, 0, @response_truncate_chars)}
-      {_output, 1} -> {:ok, "no matches"}
-      {output, code} -> {:error, "grep exit #{code}: #{String.slice(output, 0, @response_truncate_chars)}"}
+      {output, 0} ->
+        {:ok, String.slice(output, 0, @response_truncate_chars)}
+
+      {_output, 1} ->
+        {:ok, "no matches"}
+
+      {output, code} ->
+        {:error, "grep exit #{code}: #{String.slice(output, 0, @response_truncate_chars)}"}
     end
   end
 
   defp run_shell(command) do
     case System.cmd("sh", ["-c", command], stderr_to_stdout: true) do
-      {output, 0} -> {:ok, String.slice(output, 0, @response_truncate_chars)}
-      {output, code} -> {:error, "exit #{code}: #{String.slice(output, 0, @response_truncate_chars)}"}
+      {output, 0} ->
+        {:ok, String.slice(output, 0, @response_truncate_chars)}
+
+      {output, code} ->
+        {:error, "exit #{code}: #{String.slice(output, 0, @response_truncate_chars)}"}
     end
   end
 
