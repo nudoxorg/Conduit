@@ -1,101 +1,92 @@
 defmodule Daemon.Session do
-  use GenServer
-  require Logger
+  @moduledoc """
+  GenServer for one active agent session.
 
-  defstruct [:id, :parent_id, messages: [], status: :idle, run_task_pid: nil]
+  Holds session state and acts as the message hub between the interpreter Task,
+  SSE subscribers, and parent/child sessions. Does not execute ops itself —
+  spawns a Task that runs `Daemon.Interpreter.run/3` and communicates back
+  via messages.
+  """
+
+  use GenServer
+
+  defstruct [:id, :parent_id, :status, :interpreter_pid, :subscribers]
 
   # public API
 
-  def start_link(opts) do
-    GenServer.start_link(__MODULE__, opts, name: via(opts.id))
+  def start_link({id, parent_id}) do
+    GenServer.start_link(__MODULE__, {id, parent_id}, name: via(id))
   end
 
-  def run(session_id, program, message, api_keys \\ %{}) do
-    GenServer.call(via(session_id), {:run, program, message, api_keys}, :infinity)
+  def run(session_id, manifest) do
+    GenServer.cast(via(session_id), {:run, manifest})
   end
 
-  def resume(session_id, interrupt_id, reply) do
-    GenServer.cast(via(session_id), {:resume, interrupt_id, reply})
+  def resume(session_id, value) do
+    GenServer.cast(via(session_id), {:resume, value})
   end
 
-  def cancel(session_id) do
-    GenServer.cast(via(session_id), :cancel)
+  def subscribe(session_id, pid) do
+    GenServer.cast(via(session_id), {:subscribe, pid})
   end
 
-  # server callbacks
+  # callbacks
+  @impl true
+  def init({id, parent_id}) do
+    state = %__MODULE__{
+      id: id,
+      parent_id: parent_id,
+      status: :idle,
+      interpreter_pid: nil,
+      subscribers: []
+    }
 
-  def init(opts) do
-    Logger.info("session=#{opts.id} started parent=#{inspect(opts[:parent_id])}")
-    {:ok, struct(__MODULE__, opts)}
+    {:ok, state}
   end
 
-  def handle_call({:run, _, _, _}, _from, %{status: :busy} = state) do
-    Logger.warning("session=#{state.id} run rejected — already busy")
-    {:reply, {:error, :busy}, state}
-  end
-
-  def handle_call({:run, program, message, api_keys}, _from, state) do
-    Logger.info("session=#{state.id} run starting")
+  @impl true
+  def handle_cast({:run, manifest}, state) do
+    session_pid = self()
 
     task =
-      Task.async(fn ->
-        Daemon.Session.Loop.run(state.id, program, state.messages, message, api_keys)
+      Task.start_link(fn ->
+        Daemon.Interpreter.run(manifest, session_pid, state.id)
       end)
 
-    {:reply, :ok, %{state | status: :busy, run_task_pid: task.pid}}
+    {:ok, interpreter_pid} = task
+
+    {:noreply, %{state | status: :running, interpreter_pid: interpreter_pid}}
   end
 
-  def handle_info({ref, result}, state) do
-    Process.demonitor(ref, [:flush])
-    Logger.info("session=#{state.id} run completed")
-
-    {:noreply,
-     %{state | status: :idle, run_task_pid: nil}
-     |> append_messages(result)}
-  end
-
-  def handle_info({:DOWN, _ref, :process, _pid, :normal}, state) do
-    {:noreply, %{state | status: :idle, run_task_pid: nil}}
-  end
-
-  def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    Logger.error("session=#{state.id} task crashed reason=#{inspect(reason)}")
-    broadcast(state.id, %{type: :finished, content: "Task crashed: #{inspect(reason)}"})
-    {:noreply, %{state | status: :idle, run_task_pid: nil}}
-  end
-
-  def handle_cast({:resume, interrupt_id, reply}, state) do
-    if state.run_task_pid do
-      Logger.info("session=#{state.id} resuming interrupt_id=#{interrupt_id}")
-      send(state.run_task_pid, {:intervention_reply, interrupt_id, reply})
-    else
-      Logger.warning(
-        "session=#{state.id} resume received but no task running interrupt_id=#{interrupt_id}"
-      )
-    end
-
+  def handle_cast({:resume, value}, state) do
+    send(state.interpreter_pid, {:resume, value})
     {:noreply, state}
   end
 
-  def handle_cast(:cancel, state) do
-    Logger.info("session=#{state.id} cancelled")
+  def handle_cast({:subscribe, pid}, state) do
+    {:noreply, %{state | subscribers: [pid | state.subscribers]}}
+  end
 
-    if state.run_task_pid do
-      Process.exit(state.run_task_pid, :kill)
+  @impl true
+  def handle_info({:event, event}, state) do
+    Enum.each(state.subscribers, &send(&1, {:event, event}))
+    {:noreply, state}
+  end
+
+  def handle_info({:finished, result}, state) do
+    if state.parent_id do
+      [{parent_pid, _}] = Registry.lookup(Daemon.SessionRegistry, state.parent_id)
+      send(parent_pid, {:child_finished, state.id, result})
     end
 
-    broadcast(state.id, %{type: :cancelled})
-    {:noreply, %{state | status: :idle, run_task_pid: nil}}
+    {:noreply, %{state | status: :finished}}
   end
 
-  # helpers
+  def handle_info({:error, reason}, state) do
+    {:noreply, %{state | status: {:error, reason}}}
+  end
+
+  # private
 
   defp via(id), do: {:via, Registry, {Daemon.SessionRegistry, id}}
-
-  defp broadcast(session_id, event) do
-    Phoenix.PubSub.broadcast(Daemon.PubSub, "session:#{session_id}", event)
-  end
-
-  defp append_messages(state, {:ok, messages}), do: %{state | messages: messages}
-  defp append_messages(state, _), do: state
 end
