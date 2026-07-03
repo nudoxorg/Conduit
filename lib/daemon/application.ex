@@ -8,25 +8,10 @@ defmodule Daemon.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      {Finch,
-       name: Daemon.Finch,
-       pools: %{
-         :default => [
-           protocols: [:http1],
-           size: 10,
-           conn_opts: [
-             transport_opts: [
-               versions: [:"tlsv1.2"],
-               verify: :verify_peer,
-               cacertfile: CAStore.file_path()
-             ]
-           ]
-         ]
-       }},
+      {Finch, name: Daemon.Finch},
       {Phoenix.PubSub, name: Daemon.PubSub},
       {Registry, keys: :unique, name: Daemon.SessionRegistry},
-      {DynamicSupervisor, name: Daemon.SessionSupervisor, strategy: :one_for_one},
-      {Bandit, plug: Daemon.HTTP.Router, port: 4000}
+      Daemon.Session.Supervisor
     ]
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Daemon.Supervisor)
