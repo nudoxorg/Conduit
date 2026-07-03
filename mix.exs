@@ -27,6 +27,7 @@ defmodule Daemon.MixProject do
       {:plug, "~> 1.16"},
       # HTTP client (llm calls)
       {:req, "~> 0.5"},
+      {:finch, "~> 0.18"},
       {:castore, "~> 1.0"},
       # JSON
       {:jason, "~> 1.4"},
