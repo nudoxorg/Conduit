@@ -1,7 +1,20 @@
 defmodule Daemon.Interpreter do
   @moduledoc """
-  Takes and op and a context, then does what the op says, then returns a result.
+  Evaluates an op tree against a `Context`.
+
+  Sends one of two messages to `session_pid` when the top-level eval completes:
+
+    `{:op_result, result, personality}` — the whole tree returned a value.
+                                          Session decides what to do next
+                                          (feed into an LLM, or finish).
+    `{:error, reason}`                   — evaluation failed.
+
+  The interpreter does not know about LLMs, tools of registered machines,
+  or the session lifecycle. Its only side effects are the events emitted by
+  individual ops (`thought`, `tool_started`, etc.) and the two terminal
+  messages above.
   """
+
   require Logger
 
   alias Daemon.Interpreter.Context
@@ -14,9 +27,16 @@ defmodule Daemon.Interpreter do
       personality: manifest.personality
     }
 
+    Logger.info("session=#{session_id} interpreter starting")
+
     case eval(manifest.entry, ctx) do
-      {:ok, result, _ctx} -> send(session_pid, {:finished, result})
-      {:error, reason, _ctx} -> send(session_pid, {:error, reason})
+      {:ok, result, ctx} ->
+        Logger.info("session=#{session_id} interpreter done")
+        send(session_pid, {:op_result, result, ctx.personality})
+
+      {:error, reason, _ctx} ->
+        Logger.warning("session=#{session_id} interpreter error reason=#{inspect(reason)}")
+        send(session_pid, {:error, reason})
     end
   end
 
@@ -368,8 +388,18 @@ defmodule Daemon.Interpreter do
     }
 
     {:ok, _pid} = Daemon.Session.Supervisor.start_session(child_id, ctx.session_id)
+    Daemon.Session.subscribe(child_id, self())
+    send(ctx.session_pid, {:event, {:agent_spawned, child_id}})
     Daemon.Session.run(child_id, child_manifest)
-    {:ok, child_id, ctx}
+
+    case await_child(ctx.session_pid) do
+      {:ok, result} ->
+        send(ctx.session_pid, {:event, {:agent_finished, child_id, result}})
+        {:ok, result, ctx}
+
+      {:error, reason} ->
+        {:error, {:child_failed, child_id, reason}, ctx}
+    end
   end
 
   # --- private helpers ---
@@ -377,6 +407,23 @@ defmodule Daemon.Interpreter do
   defp stub(op, ctx) do
     Logger.warning("interpreter: #{op} not implemented")
     {:ok, :unit, ctx}
+  end
+
+  # Blocks the parent interpreter task on a spawned child session. Forwards any
+  # streaming events from the child to the parent's session pid so the parent's
+  # SSE stream sees the child's activity in real time.
+  defp await_child(parent_session_pid) do
+    receive do
+      {:finished, result} ->
+        {:ok, result}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      {:event, event} ->
+        send(parent_session_pid, {:event, event})
+        await_child(parent_session_pid)
+    end
   end
 
   defp do_while(condition, body, ctx) do
