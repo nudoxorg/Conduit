@@ -68,10 +68,10 @@ defmodule Daemon.Tool do
     run_shell(command)
   end
 
-  # fallback (stubbed)
+  # fallback — no clause matched, tool is unknown or args are wrong shape
   def execute(name, args) do
-    Logger.info("tool=#{name} args=#{inspect(args)} (stubbed)")
-    {:ok, "tool result for #{name}"}
+    Logger.warning("tool=#{name} unknown or bad args=#{inspect(args)}")
+    {:error, {:unknown_tool, name}}
   end
 
   # --- tool schemas/definitions ---
